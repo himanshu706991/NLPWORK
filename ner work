@@ -1,0 +1,49 @@
+import pandas as pd
+import random
+
+# Sample sentences
+documents = [
+    "John Doe works at OpenAI.",
+    "Elon Musk founded SpaceX in 2002.",
+    "Apple Inc. is a tech company based in California.",
+    "Sundar Pichai is the CEO of Google."
+]
+
+# Named Entity Recognition (NER) tags
+ner_tags = ["O", "B-PER", "I-PER", "B-ORG", "I-ORG", "B-LOC", "I-LOC"]
+
+data = []
+sentence_id = 1
+
+for sentence in documents:
+    tokens = sentence.split()  # Tokenization by space (can be improved using NLP tools)
+    for token in tokens:
+        tag = random.choice(ner_tags)  # Assigning a random tag
+        data.append([sentence_id, token, tag])
+    sentence_id += 1
+
+# Creating DataFrame
+df = pd.DataFrame(data, columns=["Sentence_ID", "Token", "TAG"])
+
+# Group by Sentence_ID and merge tokens to form complete sentences
+df_sentences = df.groupby("Sentence_ID")["Token"].apply(lambda x: ' '.join(x)).reset_index()
+df_sentences.columns = ["Sentence_ID", "Complete_Sentence"]
+
+# Display column types
+print(df.dtypes)
+
+print(df_sentences)
+
+
+#########
+
+
+# Ensure Sentence_ID is treated as a string
+df["Sentence_ID"] = df["Sentence_ID"].astype(str)
+
+# Group by Sentence_ID and merge tokens to form complete sentences
+df_sentences = df.groupby("Sentence_ID")["Token"].apply(lambda x: ' '.join(map(str, x))).reset_index()
+df_sentences.columns = ["Sentence_ID", "Complete_Sentence"]
+
+print(df.dtypes)
+print(df_sentences)
