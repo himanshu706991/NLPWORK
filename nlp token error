@@ -255,3 +255,92 @@ tokenized_result = tokenize_single_sentence(example_sentence, example_tags)
 ✅ Easier for debugging before full training
 
 🔹 Try running it with different sentences to verify tokenization and tagging correctness. Let me know if you need modifications! 🚀
+##
+Yes! Instead of saving the tokenized data as a JSON file, you can use alternative formats like CSV, Pickle, or a Database depending on your needs.
+
+🔹 Alternative Ways to Save Tokenized Data
+1️⃣ Save as CSV (Excel-Compatible)
+If you prefer a tabular format, use CSV:
+
+python
+Copy
+Edit
+import pandas as pd
+
+# Convert tokenized data to a DataFrame
+df = pd.DataFrame(tokenized_data)
+
+# Save to CSV
+df.to_csv('tokenized_with_tags.csv', index=False)
+
+print("Tokenized data has been saved as CSV!")
+✅ Easier to view in Excel or Pandas
+✅ Good for small datasets
+✅ Not as structured as JSON for nested data
+
+2️⃣ Save as Pickle (Faster Loading)
+For faster read/write operations, use Pickle:
+
+python
+Copy
+Edit
+import pickle
+
+# Save to Pickle
+with open('tokenized_with_tags.pkl', 'wb') as f:
+    pickle.dump(tokenized_data, f)
+
+print("Tokenized data has been saved as a Pickle file!")
+To load it back:
+
+python
+Copy
+Edit
+with open('tokenized_with_tags.pkl', 'rb') as f:
+    loaded_data = pickle.load(f)
+
+print(loaded_data[0])  # Check first entry
+✅ Faster than JSON & CSV
+✅ Retains Python objects (good for large datasets)
+❌ Not human-readable like JSON/CSV
+
+3️⃣ Save to a SQLite Database
+For long-term storage, use an SQLite database:
+
+python
+Copy
+Edit
+import sqlite3
+
+# Connect to (or create) a database
+conn = sqlite3.connect('tokenized_data.db')
+cursor = conn.cursor()
+
+# Create a table
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS TokenizedData (
+        sentence TEXT, tokens TEXT, token_ids TEXT, tags TEXT
+    )
+''')
+
+# Insert data
+for entry in tokenized_data:
+    cursor.execute('''
+        INSERT INTO TokenizedData (sentence, tokens, token_ids, tags)
+        VALUES (?, ?, ?, ?)
+    ''', (entry['sentence'], str(entry['tokens']), str(entry['token_ids']), str(entry['tags'])))
+
+# Commit and close
+conn.commit()
+conn.close()
+print("Tokenized data has been saved in SQLite database!")
+✅ Good for large datasets
+✅ Supports queries (filter by sentence, tags, etc.)
+❌ Needs SQL knowledge for retrieval
+
+💡 Which One Should You Choose?
+JSON – Best for structured, hierarchical data
+CSV – Best for tabular (Excel/Pandas) analysis
+Pickle – Best for fast read/write in Python
+SQLite – Best for large datasets & querying
+Let me know which format works best for your needs!
