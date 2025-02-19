@@ -176,3 +176,82 @@ for entry in tokenized_data[:3]:
 ✅ Ensured proper tag alignment with the tokenized sentence.
 
 This setup ensures smooth processing before training your NER model. Let me know if you need further adjustments! 🚀
+#####
+Yes, you can pass one sentence at a time and check how it is tokenized along with token IDs and corresponding tags. Here’s how you can modify the function to test a single sentence:
+
+✅ Single Sentence Tokenization Check
+python
+Copy
+Edit
+from transformers import DistilBertTokenizer
+
+# Initialize tokenizer
+tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+
+# Define max sequence length
+MAX_LEN = 128  
+
+def tokenize_single_sentence(sentence, sentence_tags, max_length=MAX_LEN):
+    # Ensure sentence is a string
+    if not isinstance(sentence, str):
+        print("Invalid input: Sentence should be a string.")
+        return None
+
+    # Tokenizing the sentence
+    encoding = tokenizer(
+        sentence,
+        truncation=True,
+        padding="max_length",
+        max_length=max_length,
+        return_offsets_mapping=True
+    )
+
+    # Extract tokens and token IDs
+    tokens = tokenizer.convert_ids_to_tokens(encoding['input_ids'])
+    token_ids = encoding['input_ids']
+
+    # Ensure sentence_tags is a list
+    if isinstance(sentence_tags, str):
+        sentence_tags = sentence_tags.split()  # Assuming space-separated labels
+
+    # Align labels to tokens (Handle mismatches)
+    aligned_tags = []
+    tag_idx = 0  
+
+    for token, (start, end) in zip(tokens, encoding["offset_mapping"]):
+        if token in ["[CLS]", "[SEP]", "[PAD]"]:  
+            aligned_tags.append("O")
+        else:
+            if tag_idx < len(sentence_tags):
+                aligned_tags.append(sentence_tags[tag_idx])
+                tag_idx += 1
+            else:
+                aligned_tags.append("O")  
+
+    # Print results
+    print(f"Sentence: {sentence}")
+    print(f"Tokens: {tokens}")
+    print(f"Token IDs: {token_ids}")
+    print(f"Tags: {aligned_tags}")
+    print("\n")
+
+    return {
+        'sentence': sentence,
+        'tokens': tokens,
+        'token_ids': token_ids,
+        'tags': aligned_tags
+    }
+
+# Example sentence and corresponding tags
+example_sentence = "The bank approved the loan."
+example_tags = "O O B-ORG O O"  # Example BIO tagging
+
+# Run function for a single sentence
+tokenized_result = tokenize_single_sentence(example_sentence, example_tags)
+🚀 How This Works
+✅ Pass a single sentence and its corresponding tags
+✅ Ensures token alignment and handles special tokens ([CLS], [SEP], [PAD])
+✅ Prints tokens, token IDs, and aligned tags
+✅ Easier for debugging before full training
+
+🔹 Try running it with different sentences to verify tokenization and tagging correctness. Let me know if you need modifications! 🚀
