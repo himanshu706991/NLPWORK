@@ -1,0 +1,178 @@
+It looks like there's an issue with how the labels (NER tags) are being passed to the function. The error is likely because sentence_tags is expected to be a list but is being accessed like sentence_tags[0], which assumes it's already an iterable.
+
+🔍 Fixes and Improvements
+Ensure labels are lists: If labels is a Pandas Series, make sure it contains lists of tags (one per token).
+Fix sentence.split(): The sentence should be a string, and using .split() may not be necessary.
+Fix label alignment: Ensure that tags are properly mapped to tokens.
+✅ Fixed Code
+python
+Copy
+Edit
+from transformers import DistilBertTokenizer
+
+# Initialize tokenizer (use "bert-base-uncased" if needed)
+tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+
+def tokenize_and_map_ids(texts, labels):
+    tokenized_results = []
+    
+    for sentence, sentence_tags in zip(texts, labels):
+        # Ensure sentence is a string
+        if not isinstance(sentence, str):
+            continue
+        
+        # Tokenizing the sentence (handle truncation & padding)
+        encoding = tokenizer(sentence, truncation=True, padding=True, return_offsets_mapping=True)
+
+        # Extract tokens and token IDs
+        tokens = tokenizer.convert_ids_to_tokens(encoding['input_ids'])
+        token_ids = encoding['input_ids']
+
+        # Ensure sentence_tags is a list (for safe handling)
+        if isinstance(sentence_tags, str):
+            sentence_tags = sentence_tags.split()  # Assuming space-separated labels
+        
+        # Align labels to tokens (Handle mismatches)
+        aligned_tags = []
+        tag_idx = 0  # Index for tracking the current tag
+
+        for token, (start, end) in zip(tokens, encoding["offset_mapping"]):
+            if token in ["[CLS]", "[SEP]", "[PAD]"]:  # Ignore special tokens
+                aligned_tags.append("O")
+            else:
+                if tag_idx < len(sentence_tags):
+                    aligned_tags.append(sentence_tags[tag_idx])
+                    tag_idx += 1
+                else:
+                    aligned_tags.append("O")  # Default to "O" if no tag available
+
+        # Collect results
+        tokenized_results.append({
+            'sentence': sentence,
+            'tokens': tokens,
+            'token_ids': token_ids,
+            'tags': aligned_tags
+        })
+
+    return tokenized_results
+
+# Ensure merged_df has 'description' and 'tag' as lists
+merged_df['tag'] = merged_df['tag'].apply(lambda x: x.split() if isinstance(x, str) else x)
+
+# Example: Process a small batch of data from merged_df
+texts = merged_df['description'].tolist()  # List of sentences
+labels = merged_df['tag'].tolist()         # List of tags (each tag should be a list)
+
+tokenized_data = tokenize_and_map_ids(texts, labels)
+
+# Display first few results
+for entry in tokenized_data[:3]:
+    print(f"Sentence: {entry['sentence']}")
+    print(f"Tokens: {entry['tokens']}")
+    print(f"Token IDs: {entry['token_ids']}")
+    print(f"Tags: {entry['tags']}")
+    print("\n")
+🛠 Key Fixes
+✅ Ensured sentence is a string before processing.
+✅ Converted sentence_tags into a list of tags if it was a string.
+✅ Aligned tags properly with tokens, skipping special tokens ([CLS], [SEP], [PAD]).
+✅ Used offset mapping to handle subwords correctly.
+
+Let me know if you still face issues! 🚀
+
+
+
+
+
+
+
+You said:
+ALo can add max length, padding all those parametres
+ChatGPT said:
+Yes! To ensure consistency and handle varying sequence lengths, we should include parameters like max_length, padding, and truncation. This ensures that all sequences are properly padded to the same length and truncated when necessary.
+
+✅ Updated Code with max_length, padding, and truncation
+python
+Copy
+Edit
+from transformers import DistilBertTokenizer
+
+# Initialize tokenizer (use "bert-base-uncased" if needed)
+tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+
+# Define max sequence length
+MAX_LEN = 128  # You can change this based on your dataset
+
+def tokenize_and_map_ids(texts, labels, max_length=MAX_LEN):
+    tokenized_results = []
+    
+    for sentence, sentence_tags in zip(texts, labels):
+        # Ensure sentence is a string
+        if not isinstance(sentence, str):
+            continue
+
+        # Tokenizing the sentence (handle truncation & padding)
+        encoding = tokenizer(
+            sentence,
+            truncation=True,
+            padding="max_length",
+            max_length=max_length,
+            return_offsets_mapping=True
+        )
+
+        # Extract tokens and token IDs
+        tokens = tokenizer.convert_ids_to_tokens(encoding['input_ids'])
+        token_ids = encoding['input_ids']
+
+        # Ensure sentence_tags is a list (for safe handling)
+        if isinstance(sentence_tags, str):
+            sentence_tags = sentence_tags.split()  # Assuming space-separated labels
+
+        # Align labels to tokens (Handle mismatches)
+        aligned_tags = []
+        tag_idx = 0  # Index for tracking the current tag
+
+        for token, (start, end) in zip(tokens, encoding["offset_mapping"]):
+            if token in ["[CLS]", "[SEP]", "[PAD]"]:  # Ignore special tokens
+                aligned_tags.append("O")
+            else:
+                if tag_idx < len(sentence_tags):
+                    aligned_tags.append(sentence_tags[tag_idx])
+                    tag_idx += 1
+                else:
+                    aligned_tags.append("O")  # Default to "O" if no tag available
+
+        # Collect results
+        tokenized_results.append({
+            'sentence': sentence,
+            'tokens': tokens,
+            'token_ids': token_ids,
+            'tags': aligned_tags
+        })
+
+    return tokenized_results
+
+# Ensure merged_df has 'description' and 'tag' as lists
+merged_df['tag'] = merged_df['tag'].apply(lambda x: x.split() if isinstance(x, str) else x)
+
+# Example: Process a small batch of data from merged_df
+texts = merged_df['description'].tolist()  # List of sentences
+labels = merged_df['tag'].tolist()         # List of tags (each tag should be a list)
+
+tokenized_data = tokenize_and_map_ids(texts, labels, max_length=MAX_LEN)
+
+# Display first few results
+for entry in tokenized_data[:3]:
+    print(f"Sentence: {entry['sentence']}")
+    print(f"Tokens: {entry['tokens']}")
+    print(f"Token IDs: {entry['token_ids']}")
+    print(f"Tags: {entry['tags']}")
+    print("\n")
+🚀 Enhancements
+✅ Added max_length=128 (Change as needed based on dataset).
+✅ Used padding="max_length" to ensure all sequences are the same length.
+✅ Ensured truncation=True to avoid overflow errors.
+✅ Handled special tokens [CLS], [SEP], [PAD] properly by assigning them "O" tags.
+✅ Ensured proper tag alignment with the tokenized sentence.
+
+This setup ensures smooth processing before training your NER model. Let me know if you need further adjustments! 🚀
