@@ -1,0 +1,209 @@
+The error occurs because some values in your labels column (merged_df['tag']) are float (NaN) instead of string. Transformers expect labels as a list of strings, so we need to ensure all labels are correctly formatted.
+
+✅ Solution: Convert Labels to Strings and Handle NaN
+Before passing labels to the tokenizer, do the following:
+
+python
+Copy
+Edit
+import pandas as pd
+from transformers import DistilBertTokenizer
+
+# Load tokenizer
+model_name = "distilbert-base-uncased"
+tokenizer = DistilBertTokenizer.from_pretrained(model_name)
+
+# Ensure 'tag' column has no NaN and convert to string
+merged_df['tag'] = merged_df['tag'].fillna("O").astype(str)  # Replace NaN with "O" and convert to string
+
+# Tokenize function
+def tokenize_and_align_labels(texts, labels):
+    tokenized_inputs = tokenizer(texts, truncation=True, padding=True, is_split_into_words=True)
+
+    # Align labels with tokenized inputs
+    aligned_labels = []
+    for text_labels, input_ids in zip(labels, tokenized_inputs['input_ids']):
+        aligned_labels.append([text_labels] * len(input_ids))  # Assign the same label to all tokens
+    
+    tokenized_inputs['labels'] = aligned_labels
+    return tokenized_inputs
+
+# Convert to list
+texts = merged_df['description'].astype(str).tolist()  # Convert description to string
+labels = merged_df['tag'].tolist()  # Already cleaned above
+
+# Tokenize the data
+tokenized_data = tokenize_and_align_labels(texts, labels)
+
+# Check tokenized data
+print(tokenized_data)
+🔹 Why This Fix Works?
+✅ fillna("O") → Replaces NaN values in the 'tag' column
+✅ astype(str) → Ensures all tags are strings, avoiding float errors
+✅ List Comprehension for Labels → Ensures each token has a corresponding label
+
+Now, your code should work without the "expected string, got float" error! 🚀
+Let me know if you still face issues.
+
+
+
+
+
+
+
+You said:
+i already converted but still getting
+ChatGPT said:
+If you're still getting the "expected string, got float" error, let's debug systematically and ensure everything is correctly formatted before passing it to the tokenizer.
+
+🔍 Step 1: Check for Remaining NaNs
+Even after fillna("O"), sometimes Pandas may keep some NaN values. Let's double-check if your tag column still has NaN:
+
+python
+Copy
+Edit
+print(merged_df['tag'].isna().sum())  # Should print 0 if all NaNs are handled
+print(merged_df['tag'].dtype)  # Should be 'object' (string), not float
+print(merged_df.head())  # Inspect the first few rows
+If you still see NaN values, enforce the replacement:
+
+python
+Copy
+Edit
+merged_df['tag'] = merged_df['tag'].fillna("O").astype(str)
+🔍 Step 2: Verify Data Types Before Tokenization
+Ensure all values in texts and labels are strings, not floats:
+
+python
+Copy
+Edit
+print(type(merged_df['description'][0]))  # Should print <class 'str'>
+print(type(merged_df['tag'][0]))  # Should print <class 'str'>
+If tag is still float, force conversion:
+
+python
+Copy
+Edit
+merged_df['description'] = merged_df['description'].astype(str)
+merged_df['tag'] = merged_df['tag'].astype(str)
+🔍 Step 3: Debug the Tokenizer Function
+Modify your function to print intermediate values and catch errors:
+
+python
+Copy
+Edit
+from transformers import DistilBertTokenizer
+
+# Load tokenizer
+tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+
+def tokenize_and_align_labels(texts, labels):
+    print("Checking first text:", texts[0])  # Debug print
+    print("Checking first label:", labels[0])  # Debug print
+    print("Label type:", type(labels[0]))  # Debug print
+
+    tokenized_inputs = tokenizer(
+        texts, truncation=True, padding=True, is_split_into_words=True
+    )
+
+    aligned_labels = []
+    for text_labels, input_ids in zip(labels, tokenized_inputs["input_ids"]):
+        # Ensure label is a string
+        if isinstance(text_labels, float):  # Catch remaining NaNs
+            print("⚠ Warning: Float found in labels!", text_labels)
+            text_labels = "O"  # Replace float with default tag
+        
+        aligned_labels.append([text_labels] * len(input_ids))
+
+    tokenized_inputs["labels"] = aligned_labels
+    return tokenized_inputs
+
+# Convert to list
+texts = merged_df["description"].tolist()
+labels = merged_df["tag"].tolist()
+
+# Tokenize the data
+tokenized_data = tokenize_and_align_labels(texts, labels)
+print("Tokenization complete!")
+✅ Why This Fix Works?
+Checks for NaN values before processing.
+Forces all data to be strings (fillna("O").astype(str)).
+Debug prints help locate issues with label formatting.
+Handles unexpected floats inside the function (just in case NaN sneaks in).
+Now, run the script again, and let me know if it still fails! 🚀
+
+
+
+
+
+
+
+You said:
+return offset mapping is notavailable for python tokenizers. to  this feature change tokenizer  to deriving from transformers getting error 
+ChatGPT said:
+You're getting this error because offset_mapping is not supported for Python-based tokenizers like DistilBertTokenizer or BertTokenizer. You need to switch to a Fast Tokenizer, which is built using Rust and provides offset_mapping.
+
+✅ Fix: Use Fast Tokenizer
+Replace:
+
+python
+Copy
+Edit
+from transformers import DistilBertTokenizer
+tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+With:
+
+python
+Copy
+Edit
+from transformers import DistilBertTokenizerFast
+tokenizer = DistilBertTokenizerFast.from_pretrained("distilbert-base-uncased")
+💡 Why This Fix Works?
+DistilBertTokenizerFast inherits from PreTrainedTokenizerFast, which supports offset_mapping.
+The fast tokenizer correctly aligns word tokens with their original positions.
+🔍 Updated Tokenization Function
+python
+Copy
+Edit
+from transformers import DistilBertTokenizerFast
+
+# Load the fast tokenizer
+tokenizer = DistilBertTokenizerFast.from_pretrained("distilbert-base-uncased")
+
+def tokenize_and_align_labels(texts, labels):
+    # Tokenizing the sentences with offset mapping
+    tokenized_inputs = tokenizer(
+        texts,
+        truncation=True,
+        padding=True,
+        is_split_into_words=True,
+        return_offsets_mapping=True  # Enables offset mapping
+    )
+
+    aligned_labels = []
+    for text_labels, offsets in zip(labels, tokenized_inputs["offset_mapping"]):
+        label_ids = []
+        for offset in offsets:
+            if offset == (0, 0):  # Padding tokens
+                label_ids.append("O")
+            else:
+                label_ids.append(text_labels)  # Assign original label
+
+        aligned_labels.append(label_ids)
+
+    tokenized_inputs["labels"] = aligned_labels
+    return tokenized_inputs
+
+# Example: Convert to list
+texts = merged_df["description"].astype(str).tolist()
+labels = merged_df["tag"].fillna("O").astype(str).tolist()
+
+# Tokenize
+tokenized_data = tokenize_and_align_labels(texts, labels)
+print("Tokenization successful!")
+🔥 Key Fixes
+✅ Switched to DistilBertTokenizerFast (fixes offset_mapping issue)
+✅ Added return_offsets_mapping=True (enables offset tracking)
+✅ Handled padding tokens ((0,0)) (ensures proper alignment)
+
+Now, try running it again! 🚀
