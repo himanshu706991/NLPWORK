@@ -135,3 +135,33 @@ tokenized_test, test_label_ids = tokenize_and_align_labels(test_sentences, test_
 ✅ Ensures Truncation: Prevents long sentences from exceeding MAX_LENGTH.
 ✅ Converts Inputs to PyTorch Tensors: Ensures compatibility with model training.
 ✅ Fixes Data Issues: Replaces NaN in tag column with "O" and enforces string conversion
+###
+✅ Fix: Ensure All Tokens Are Strings
+Before applying .join(), we need to:
+
+Convert all tokens to strings explicitly.
+Handle missing values (NaN) by replacing them with an empty string ("").
+Ensure the "tag" column is in the correct format.
+🔧 Updated Code
+python
+Copy
+Edit
+import pandas as pd
+
+# Ensure 'token' and 'tag' columns are strings and handle NaN values
+test_df["token"] = test_df["token"].astype(str).fillna("")
+test_df["tag"] = test_df["tag"].astype(str).fillna("O")  # Default tag "O" for missing values
+
+# Group sentences by 'sentence_id' and ensure all tokens are properly formatted
+test_sentences = test_df.groupby("sentence_id")["token"].apply(lambda x: " ".join(map(str, x))).tolist()
+test_labels = test_df.groupby("sentence_id")["tag"].apply(lambda x: list(map(str, x))).tolist()
+
+# Print to verify
+print(test_sentences[:3])  # Print first 3 grouped sentences
+print(test_labels[:3])     # Print first 3 corresponding tag sequences
+🔍 Explanation of Fix
+✅ Handles NaN values → fillna("") for tokens and fillna("O") for tags.
+✅ Ensures all tokens are strings → astype(str) to avoid float errors.
+✅ Maps non-string elements → Uses map(str, x) inside .join() and .apply(list).
+
+This should resolve your issue and allow smooth tokenization. Let me know if you face any more issues!
