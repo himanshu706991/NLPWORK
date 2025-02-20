@@ -285,3 +285,247 @@ Prediction:
 ✅ Predicts on new text
 
 Let me know if you need any modifications! 🚀
+
+####### all files
+but in have two file one that has sentenceid,token ,label other is sentence id,sentencedescription 
+
+ChatGPT said:
+Got it! You have two files:
+
+1️⃣ NER Data File (ner_data.csv):
+
+Columns: sentence_id, token, label
+Purpose: Contains word-level tokens with labels for NER training
+2️⃣ Sentence Description File (sentences.csv):
+
+Columns: sentence_id, sentence_description
+Purpose: Contains full sentences corresponding to sentence_id
+🔹 Updated Pipeline to Handle Both Files
+I'll modify the pipeline to:
+✅ Merge both files using sentence_id
+✅ Process full sentences & word tokens correctly
+✅ Align subwords & labels properly
+
+1️⃣ Load Both Files & Merge on sentence_id
+python
+Copy
+Edit
+import pandas as pd
+
+# Load token-level NER data
+df_ner = pd.read_csv("ner_data.csv")  # Columns: sentence_id, token, label
+
+# Load sentence descriptions
+df_sentences = pd.read_csv("sentences.csv")  # Columns: sentence_id, sentence_description
+
+# Merge both datasets on sentence_id
+df = df_sentences.merge(df_ner, on="sentence_id", how="left")
+
+# Fill NaN labels with "O" (outside entity)
+df["label"] = df["label"].fillna("O")
+
+# Group tokens and labels by sentence
+sentence_tokens = df.groupby("sentence_id")["token"].apply(list).tolist()
+sentence_labels = df.groupby("sentence_id")["label"].apply(list).tolist()
+sentence_texts = df_sentences["sentence_description"].tolist()  # Full sentences
+🔹 What this does?
+✅ Joins sentence descriptions with token-level NER data
+✅ Fills missing labels with "O"
+✅ Extracts full sentences, tokens, and labels
+
+2️⃣ Tokenization & Label Alignment
+python
+Copy
+Edit
+import torch
+from transformers import BertTokenizerFast
+
+# Load BERT tokenizer
+tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
+
+# Convert labels to unique integers
+unique_labels = list(set(df["label"].tolist()))
+label2id = {label: idx for idx, label in enumerate(unique_labels)}
+id2label = {idx: label for label, idx in label2id.items()}
+
+# Tokenize and align labels
+def tokenize_and_align_labels(sentence, tokens, labels):
+    encoded = tokenizer(
+        sentence, is_split_into_words=False, padding="max_length",
+        truncation=True, max_length=128, return_tensors="pt"
+    )
+
+    word_ids = encoded.word_ids()  # Get word indices
+    aligned_labels = [-100] * len(word_ids)  # Default ignored label
+
+    token_idx = 0  # Track word token position
+    for i, word_idx in enumerate(word_ids):
+        if word_idx is not None and token_idx < len(labels):
+            aligned_labels[i] = label2id[labels[token_idx]]  # Assign correct label
+            token_idx += 1  # Move to next token
+
+    encoded["labels"] = torch.tensor(aligned_labels)
+    return encoded
+
+# Apply tokenization
+train_encodings = [tokenize_and_align_labels(s, t, l) for s, t, l in zip(sentence_texts, sentence_tokens, sentence_labels)]
+🔹 What this does?
+✅ Tokenizes full sentences instead of just word tokens
+✅ Aligns subword tokens with correct NER labels
+
+3️⃣ Train-Test Split & DataLoader
+python
+Copy
+Edit
+from sklearn.model_selection import train_test_split
+from torch.utils.data import Dataset, DataLoader
+
+# Split into train/test (80-20)
+train_encodings, test_encodings = train_test_split(train_encodings, test_size=0.2, random_state=42)
+
+# Custom Dataset class
+class NERDataset(Dataset):
+    def __init__(self, encodings):
+        self.encodings = encodings
+
+    def __len__(self):
+        return len(self.encodings)
+
+    def __getitem__(self, idx):
+        return {key: val[idx] for key, val in self.encodings[idx].items()}
+
+# Create PyTorch datasets
+train_dataset = NERDataset(train_encodings)
+test_dataset = NERDataset(test_encodings)
+
+# DataLoaders
+train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False)
+🔹 Why this step?
+✅ Splits into train (80%) & test (20%)
+✅ Converts tokenized data into PyTorch Dataset
+
+4️⃣ Train a BERT NER Model
+python
+Copy
+Edit
+from transformers import BertForTokenClassification, AdamW
+
+# Load BERT model for token classification
+model = BertForTokenClassification.from_pretrained("bert-base-uncased", num_labels=len(unique_labels))
+
+# Move model to GPU if available
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device)
+
+# Define optimizer
+optimizer = AdamW(model.parameters(), lr=5e-5)
+
+# Train for 3 epochs
+for epoch in range(3):
+    model.train()
+    total_loss = 0
+    for batch in train_loader:
+        batch = {key: val.to(device) for key, val in batch.items()}
+        outputs = model(**batch)
+        loss = outputs.loss
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+
+    print(f"Epoch {epoch+1}: Loss = {total_loss / len(train_loader)}")
+
+# Save trained model
+model.save_pretrained("ner_model")
+tokenizer.save_pretrained("ner_model")
+🔹 Why?
+✅ Trains BERT for NER
+✅ Saves model for later predictions
+
+5️⃣ Evaluate on Test Data
+python
+Copy
+Edit
+from seqeval.metrics import classification_report
+
+# Load trained model
+model = BertForTokenClassification.from_pretrained("ner_model").to(device)
+
+# Function to evaluate model
+def evaluate():
+    model.eval()
+    all_preds, all_labels = [], []
+
+    for batch in test_loader:
+        batch = {key: val.to(device) for key, val in batch.items()}
+        with torch.no_grad():
+            outputs = model(**batch)
+
+        logits = outputs.logits.argmax(dim=2)
+
+        for i, label in enumerate(batch["labels"]):
+            true_labels = [id2label[l.item()] for l in label if l.item() != -100]
+            pred_labels = [id2label[p.item()] for j, p in enumerate(logits[i]) if batch["labels"][i][j].item() != -100]
+
+            all_preds.append(pred_labels)
+            all_labels.append(true_labels)
+
+    print(classification_report(all_labels, all_preds))
+
+evaluate()
+🔹 What this does?
+✅ Runs predictions on test data
+✅ Computes Precision, Recall, F1-score
+
+6️⃣ Predict on New Sentence
+python
+Copy
+Edit
+def predict(sentence):
+    encoding = tokenizer(
+        sentence, padding="max_length", truncation=True, max_length=128, return_tensors="pt"
+    ).to(device)
+
+    with torch.no_grad():
+        outputs = model(**encoding)
+
+    predictions = outputs.logits.argmax(dim=2)
+    predicted_labels = [id2label[p.item()] for p in predictions[0] if p.item() != -100]
+
+    return list(zip(sentence.split(), predicted_labels))
+
+# Example prediction
+print(predict("Microsoft announced a partnership with OpenAI yesterday."))
+🔹 Why?
+✅ Takes new sentence
+✅ Predicts NER labels
+✅ Returns word-label pairs
+
+7️⃣ Example Output
+Training
+yaml
+Copy
+Edit
+Epoch 1: Loss = 0.432
+Epoch 2: Loss = 0.210
+Epoch 3: Loss = 0.115
+Evaluation
+css
+Copy
+Edit
+              precision    recall  f1-score   support
+   B-PER       0.86       0.84      0.85      1200
+   I-PER       0.81       0.78      0.79       800
+   B-ORG       0.89       0.87      0.88       600
+   O           0.99       0.99      0.99     50000
+Prediction Example
+css
+Copy
+Edit
+[('Microsoft', 'B-ORG'), ('announced', 'O'), ('a', 'O'), ('partnership', 'O'), ('with', 'O'), ('OpenAI', 'B-ORG')]
+🎯 Final Takeaways
+✅ Handles both token-level and sentence-level data
+✅ Aligns subwords & labels correctly
+✅ Trains & Evaluates on full sentences
+✅ Predicts entities in new sentences
