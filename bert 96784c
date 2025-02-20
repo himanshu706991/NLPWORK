@@ -1,0 +1,297 @@
+use cpu environ not use cude or gpuy also i have bert uncasedb96743c model downloaed file consider this
+ChatGPT said:
+Got it! We’ll modify the pipeline to:
+✅ Use only CPU (no CUDA/GPU)
+✅ Load the local BERT model (bert-uncased-b96743c) instead of downloading it
+✅ Ensure proper token-label alignment
+
+🔹 Updated Pipeline
+1️⃣ Load Both CSV Files & Merge on sentence_id
+python
+Copy
+Edit
+import pandas as pd
+
+# Load token-level NER data
+df_ner = pd.read_csv("ner_data.csv")  # Columns: sentence_id, token, label
+
+# Load sentence descriptions
+df_sentences = pd.read_csv("sentences.csv")  # Columns: sentence_id, sentence_description
+
+# Merge on sentence_id
+df = df_sentences.merge(df_ner, on="sentence_id", how="left")
+
+# Fill missing labels with "O"
+df["label"] = df["label"].fillna("O")
+
+# Group tokens and labels by sentence
+sentence_tokens = df.groupby("sentence_id")["token"].apply(list).tolist()
+sentence_labels = df.groupby("sentence_id")["label"].apply(list).tolist()
+sentence_texts = df_sentences["sentence_description"].tolist()  # Full sentences
+🔹 Why?
+✅ Merges sentence descriptions with token-level NER data
+✅ Fills missing labels with "O"
+
+2️⃣ Load Local BERT Model & Tokenizer
+python
+Copy
+Edit
+import torch
+from transformers import BertTokenizerFast
+
+# Load tokenizer from local model
+tokenizer = BertTokenizerFast.from_pretrained("bert-uncased-b96743c")
+
+# Create label mapping
+unique_labels = list(set(df["label"].tolist()))
+label2id = {label: idx for idx, label in enumerate(unique_labels)}
+id2label = {idx: label for label, idx in label2id.items()}
+🔹 Why?
+✅ Uses local model (bert-uncased-b96743c)
+✅ Maps labels to IDs
+
+3️⃣ Tokenization & Label Alignment
+python
+Copy
+Edit
+def tokenize_and_align_labels(sentence, tokens, labels):
+    encoded = tokenizer(
+        sentence, is_split_into_words=False, padding="max_length",
+        truncation=True, max_length=128, return_tensors="pt"
+    )
+
+    word_ids = encoded.word_ids()  # Get word indices
+    aligned_labels = [-100] * len(word_ids)  # Default ignored label
+
+    token_idx = 0
+    for i, word_idx in enumerate(word_ids):
+        if word_idx is not None and token_idx < len(labels):
+            aligned_labels[i] = label2id[labels[token_idx]]
+            token_idx += 1
+
+    encoded["labels"] = torch.tensor(aligned_labels)
+    return encoded
+
+# Apply tokenization
+train_encodings = [tokenize_and_align_labels(s, t, l) for s, t, l in zip(sentence_texts, sentence_tokens, sentence_labels)]
+🔹 Why?
+✅ Tokenizes full sentences
+✅ Aligns subwords with correct labels
+
+4️⃣ Train-Test Split & DataLoader
+python
+Copy
+Edit
+from sklearn.model_selection import train_test_split
+from torch.utils.data import Dataset, DataLoader
+
+# Train-test split (80-20)
+train_encodings, test_encodings = train_test_split(train_encodings, test_size=0.2, random_state=42)
+
+# Define custom Dataset
+class NERDataset(Dataset):
+    def __init__(self, encodings):
+        self.encodings = encodings
+
+    def __len__(self):
+        return len(self.encodings)
+
+    def __getitem__(self, idx):
+        return {key: val[idx] for key, val in self.encodings[idx].items()}
+
+# Create datasets
+train_dataset = NERDataset(train_encodings)
+test_dataset = NERDataset(test_encodings)
+
+# DataLoaders
+train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False)
+🔹 Why?
+✅ Splits train (80%) & test (20%)
+✅ Converts tokenized data into PyTorch Dataset
+
+5️⃣ Train the NER Model
+python
+Copy
+Edit
+from transformers import BertForTokenClassification, AdamW
+
+# Load BERT model from local directory
+model = BertForTokenClassification.from_pretrained("bert-uncased-b96743c", num_labels=len(unique_labels))
+
+# Use only CPU
+device = torch.device("cpu")
+model.to(device)
+
+# Define optimizer
+optimizer = AdamW(model.parameters(), lr=5e-5)
+
+# Train for 3 epochs
+for epoch in range(3):
+    model.train()
+    total_loss = 0
+    for batch in train_loader:
+        batch = {key: val.to(device) for key, val in batch.items()}
+        outputs = model(**batch)
+        loss = outputs.loss
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+
+    print(f"Epoch {epoch+1}: Loss = {total_loss / len(train_loader)}")
+
+# Save trained model
+model.save_pretrained("ner_model")
+tokenizer.save_pretrained("ner_model")
+🔹 Why?
+✅ Trains locally on CPU
+✅ Uses local BERT model
+
+6️⃣ Evaluate on Test Data
+python
+Copy
+Edit
+from seqeval.metrics import classification_report
+
+# Load trained model on CPU
+model = BertForTokenClassification.from_pretrained("ner_model").to(device)
+
+# Evaluate function
+def evaluate():
+    model.eval()
+    all_preds, all_labels = [], []
+
+    for batch in test_loader:
+        batch = {key: val.to(device) for key, val in batch.items()}
+        with torch.no_grad():
+            outputs = model(**batch)
+
+        logits = outputs.logits.argmax(dim=2)
+
+        for i, label in enumerate(batch["labels"]):
+            true_labels = [id2label[l.item()] for l in label if l.item() != -100]
+            pred_labels = [id2label[p.item()] for j, p in enumerate(logits[i]) if batch["labels"][i][j].item() != -100]
+
+            all_preds.append(pred_labels)
+            all_labels.append(true_labels)
+
+    print(classification_report(all_labels, all_preds))
+
+evaluate()
+🔹 Why?
+✅ Runs evaluation on CPU
+✅ Computes Precision, Recall, F1-score
+
+7️⃣ Predict on New Sentence
+python
+Copy
+Edit
+def predict(sentence):
+    encoding = tokenizer(
+        sentence, padding="max_length", truncation=True, max_length=128, return_tensors="pt"
+    ).to(device)
+
+    with torch.no_grad():
+        outputs = model(**encoding)
+
+    predictions = outputs.logits.argmax(dim=2)
+    predicted_labels = [id2label[p.item()] for p in predictions[0] if p.item() != -100]
+
+    return list(zip(sentence.split(), predicted_labels))
+
+# Example prediction
+print(predict("Microsoft announced a partnership with OpenAI yesterday."))
+🔹 Why?
+✅ Takes new sentence
+✅ Predicts NER labels
+✅ Returns word-label pairs
+
+🎯 Final Takeaways
+✅ Uses local BERT model (bert-uncased-b96743c)
+✅ Runs only on CPU (no GPU needed)
+✅ Merges sentence descriptions with token-level data
+✅ Aligns subwords with correct labels
+✅ Trains & Evaluates on full sentences
+
+Let me know if you need any changes! 🚀
+
+
+
+
+
+
+
+You said:
+Actully i am getting bert uncased i am getting many packege not there error
+ChatGPT said:
+Since you're working in a CPU-only environment and using a local BERT model, let's make sure your environment has all the required packages installed.
+
+📌 Install Missing Packages
+Before running the code, install the required libraries. Run this command:
+
+bash
+Copy
+Edit
+pip install torch transformers scikit-learn pandas seqeval
+🔹 Why?
+✅ torch → Required for PyTorch models
+✅ transformers → For BERT tokenizer & model
+✅ scikit-learn → For train_test_split
+✅ pandas → For data handling
+✅ seqeval → For NER evaluation
+
+📌 Verify Your Installed Packages
+Run this in Python to check if all packages are available:
+
+python
+Copy
+Edit
+import torch
+import transformers
+import sklearn
+import pandas
+import seqeval
+
+print("All required packages are installed!")
+If any package is missing, install it using pip install <package_name>.
+
+📌 Ensure Local BERT Model is Loaded Correctly
+If you have downloaded the bert-uncased-b96743c model but still get an error, check:
+
+python
+Copy
+Edit
+from transformers import BertTokenizerFast, BertForTokenClassification
+
+model_path = "bert-uncased-b96743c"  # Your local model path
+
+# Try loading tokenizer
+tokenizer = BertTokenizerFast.from_pretrained(model_path)
+print("Tokenizer loaded successfully!")
+
+# Try loading model
+model = BertForTokenClassification.from_pretrained(model_path)
+print("Model loaded successfully!")
+🔹 If you get an error like "Model not found", check:
+1️⃣ Does the folder exist? Run:
+
+bash
+Copy
+Edit
+ls bert-uncased-b96743c
+2️⃣ Does it have these files?
+✅ config.json
+✅ pytorch_model.bin
+✅ vocab.txt
+
+If any file is missing, you may need to redownload the model:
+
+bash
+Copy
+Edit
+from transformers import AutoModel
+
+AutoModel.from_pretrained("bert-base-uncased").save_pretrained("bert-uncased-b96743c")
+📌 Now, Try Running Your Pipeline
+Once all packages and the model are correctly loaded, you can retry the full pipeline I shared earlier. Let me know if any issue persists! 🚀
